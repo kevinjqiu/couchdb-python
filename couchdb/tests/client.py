@@ -7,6 +7,8 @@
 # you should have received as part of this distribution.
 
 from datetime import datetime
+import functools
+import multiprocessing
 import os
 import os.path
 import shutil
@@ -17,6 +19,10 @@ import unittest
 
 from couchdb import client, http, util
 from couchdb.tests import testutil
+
+
+def _current_pid():
+    return os.getpid()
 
 
 class ServerTestCase(testutil.TempDatabaseMixin, unittest.TestCase):
@@ -481,7 +487,9 @@ class DatabaseTestCase(testutil.TempDatabaseMixin, unittest.TestCase):
         # that the HTTP connection made it to the pool.
         list(self.db.changes(feed='continuous', timeout=0))
         scheme, netloc = util.urlsplit(client.DEFAULT_BASE_URL)[:2]
-        self.assertTrue(self.db.resource.session.connection_pool.conns[(scheme, netloc)])
+        current_pid = _current_pid()
+        key = (current_pid, scheme, netloc)
+        self.assertTrue(self.db.resource.session.connection_pool.conns[key])
 
     def test_changes_releases_conn_when_lastseq(self):
         # Consume a changes feed, stopping at the 'last_seq' item, i.e. don't
@@ -490,8 +498,10 @@ class DatabaseTestCase(testutil.TempDatabaseMixin, unittest.TestCase):
         for obj in self.db.changes(feed='continuous', timeout=0):
             if 'last_seq' in obj:
                 break
+        current_pid = _current_pid()
         scheme, netloc = util.urlsplit(client.DEFAULT_BASE_URL)[:2]
-        self.assertTrue(self.db.resource.session.connection_pool.conns[(scheme, netloc)])
+        key = (current_pid, scheme, netloc)
+        self.assertTrue(self.db.resource.session.connection_pool.conns[key])
 
     def test_changes_conn_usable(self):
         # Consume a changes feed to get a used connection in the pool.
@@ -838,8 +848,33 @@ class ViewIterationTestCase(testutil.TempDatabaseMixin, unittest.TestCase):
     def test_nullkeys(self):
         self.assertEqual(len(list(self.db.iterview('test/nulls', 10))), self.num_docs)
 
+
+def _get_by_id(db, result, id):
+    result.append(db[id])
+
+
+class TestConcurrent(testutil.TempDatabaseMixin, unittest.TestCase):
+    def test_concurrent_get(self):
+        self.db.save({'_id': 'foo', 'value': 'hello'})
+        self.db.save({'_id': 'bar', 'value': 'world'})
+        processes = []
+        result = multiprocessing.Manager().list()
+        for id in ('foo', 'bar'):
+            process = multiprocessing.Process(target=functools.partial(_get_by_id, self.db, result),
+                                              args=(id,))
+            processes.append(process)
+            process.start()
+
+        for process in processes:
+            process.join()
+
+        self.assertEqual(len(result), 2)
+        self.assertEqual(set(['hello', 'world']), set([r['value'] for r in result]))
+
+
 def suite():
     suite = unittest.TestSuite()
+    suite.addTest(unittest.makeSuite(TestConcurrent, 'test'))
     suite.addTest(unittest.makeSuite(ServerTestCase, 'test'))
     suite.addTest(unittest.makeSuite(DatabaseTestCase, 'test'))
     suite.addTest(unittest.makeSuite(ViewTestCase, 'test'))
