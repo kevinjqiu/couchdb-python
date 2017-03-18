@@ -13,6 +13,7 @@ standard library.
 
 from base64 import b64encode
 from datetime import datetime
+import os
 import errno
 import socket
 import time
@@ -482,17 +483,20 @@ class ConnectionPool(object):
     def __init__(self, timeout, disable_ssl_verification=False):
         self.timeout = timeout
         self.disable_ssl_verification = disable_ssl_verification
-        self.conns = {} # HTTP connections keyed by (scheme, host)
+        self.conns = {} # HTTP connections keyed by (current_process_pid, scheme, host)
         self.lock = Lock()
 
-    def get(self, url):
+    @property
+    def _current_process_id(self):
+        return os.getpid()
 
+    def get(self, url):
         scheme, host = util.urlsplit(url, 'http', False)[:2]
 
         # Try to reuse an existing connection.
         self.lock.acquire()
         try:
-            conns = self.conns.setdefault((scheme, host), [])
+            conns = self.conns.setdefault((self._current_process_id, scheme, host), [])
             if conns:
                 conn = conns.pop(-1)
             else:
@@ -520,7 +524,7 @@ class ConnectionPool(object):
         scheme, host = util.urlsplit(url, 'http', False)[:2]
         self.lock.acquire()
         try:
-            self.conns.setdefault((scheme, host), []).append(conn)
+            self.conns.setdefault((self._current_process_id, scheme, host), []).append(conn)
         finally:
             self.lock.release()
 
