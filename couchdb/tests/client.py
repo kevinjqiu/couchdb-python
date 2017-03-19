@@ -21,10 +21,6 @@ from couchdb import client, http, util
 from couchdb.tests import testutil
 
 
-def _current_pid():
-    return os.getpid()
-
-
 class ServerTestCase(testutil.TempDatabaseMixin, unittest.TestCase):
 
     def test_init_with_resource(self):
@@ -487,7 +483,7 @@ class DatabaseTestCase(testutil.TempDatabaseMixin, unittest.TestCase):
         # that the HTTP connection made it to the pool.
         list(self.db.changes(feed='continuous', timeout=0))
         scheme, netloc = util.urlsplit(client.DEFAULT_BASE_URL)[:2]
-        current_pid = _current_pid()
+        current_pid = os.getpid()
         key = (current_pid, scheme, netloc)
         self.assertTrue(self.db.resource.session.connection_pool.conns[key])
 
@@ -498,7 +494,7 @@ class DatabaseTestCase(testutil.TempDatabaseMixin, unittest.TestCase):
         for obj in self.db.changes(feed='continuous', timeout=0):
             if 'last_seq' in obj:
                 break
-        current_pid = _current_pid()
+        current_pid = os.getpid()
         scheme, netloc = util.urlsplit(client.DEFAULT_BASE_URL)[:2]
         key = (current_pid, scheme, netloc)
         self.assertTrue(self.db.resource.session.connection_pool.conns[key])
