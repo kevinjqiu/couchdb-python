@@ -483,12 +483,8 @@ class ConnectionPool(object):
     def __init__(self, timeout, disable_ssl_verification=False):
         self.timeout = timeout
         self.disable_ssl_verification = disable_ssl_verification
-        self.conns = {} # HTTP connections keyed by (current_process_pid, scheme, host)
+        self.conns = {} # HTTP connections keyed by (os.getpid(), scheme, host)
         self.lock = Lock()
-
-    @property
-    def _current_process_id(self):
-        return os.getpid()
 
     def get(self, url):
         scheme, host = util.urlsplit(url, 'http', False)[:2]
@@ -496,7 +492,7 @@ class ConnectionPool(object):
         # Try to reuse an existing connection.
         self.lock.acquire()
         try:
-            conns = self.conns.setdefault((self._current_process_id, scheme, host), [])
+            conns = self.conns.setdefault((os.getpid(), scheme, host), [])
             if conns:
                 conn = conns.pop(-1)
             else:
@@ -524,7 +520,7 @@ class ConnectionPool(object):
         scheme, host = util.urlsplit(url, 'http', False)[:2]
         self.lock.acquire()
         try:
-            self.conns.setdefault((self._current_process_id, scheme, host), []).append(conn)
+            self.conns.setdefault((os.getpid(), scheme, host), []).append(conn)
         finally:
             self.lock.release()
 
